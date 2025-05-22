@@ -12,8 +12,8 @@ class yun_ban_ke:
                             'https': 'socks5h://127.0.0.1:7897'
                         }
         self.data = {
-        "account" : "18132487973",
-        "ciphertext": "VjJTd1QzQ3JIU1cwdG5QTDJlZDU2MzM0MTk1NjQ3ZDViMmRiM2M3NjFmMWE4ZDc2FarbHS3fdaoyXjU1l3rsbQ=="
+        "account" : "User",
+        "ciphertext": "password"
         }
         self.session = requests.Session()
         self.session.headers.update({
