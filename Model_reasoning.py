@@ -14,7 +14,7 @@ class ModelReasoning:
             return
             
         # 设置API密钥
-        dashscope.api_key = "sk-7938f4fb83e849c49f6c1e722274cd7b"
+        dashscope.api_key = "YOU_KEY"
         
         # 构建Prompt
         prompt = f"""你回答题目时，只需要回答选项如:A,B,C这样,不需要其他的文字,还有单选就是单选,除非题目有说明多选,否则只给一个答案,还有些题型需要文字。下面是一道题目:{self.data}"""
