@@ -3,6 +3,7 @@ import time
 from lxml import etree
 import os
 import random
+import json
 
 class yun_ban_ke:
     def __init__(self):
@@ -11,10 +12,6 @@ class yun_ban_ke:
                             'http': 'socks5h://127.0.0.1:7897',
                             'https': 'socks5h://127.0.0.1:7897'
                         }
-        self.data = {
-        "account" : "User",
-        "ciphertext": "password"
-        }
         self.session = requests.Session()
         self.session.headers.update({
             "cookie" : "_uab_collina=174728336884969406676243; b-user-id=10ca73a3-efcc-e59a-eeb1-4493c14b3bf4; acw_tc=0a0966d617478890811671009e2b59c212232a84bc2c9668b527602aa1ac9c; teachweb=687aae30819fe7a5e5ba0f8af118c021e45925f0; SERVERID=8225607901597b15a5eced5225327c48|1747889093|1747889081; tfstk=gBHmLpbZWjPXIrT8wYwXtMF_wOO8h-w_JVBTWRUwazz5kZBxbA0ib46tMITfjb0Zyr7vcCgkI40EMNnaBGmahYhABrLbIcuLIeLpppnjcWwwJeLYkcUQQlJT7QFqYqyhheLppLQbOKWHJVnZzJtufzr4bOywq8rTYRrN3VzzakrduRuZ7zzzDksV0PWVz_z7bRzZ7R-uUzZgQPljg1anl2HyPagvtDv6CYq0iyXTrOXMXoV08mzk8ekkdS4E0zXwuqlebP4SLUdoVVlqkugMKU2EO4DgTRvcRocrx8zYLBfun03jK-kHotE8srcr37jNQ8y8S2hioEfbuj3uOuPPjpZ-Jzoj3bx1zmuLo-rzwp-n45l-hWMvzt2EOmex_28RMrl3bg8Ra6PHJOZyXY511Sr7qyF4IXWv0QZHg3xlOLP4Vo9kq3f11Sr7qyKkq69zguZXE",
@@ -27,13 +24,22 @@ class yun_ban_ke:
         self.topic_url = set() # 存储文件里的题目
         self.test_list = [] # 存储正在处理的题目
         self.url_list = [] # 存储测试题的url
-        with open(self.url_text,'r',encoding='utf-8') as f:
-            for url in f.readlines():
-                self.topic_url.add(url.strip())
         self.id = []
         if not os.path.exists(self.path):
             os.makedirs(self.path,exist_ok=True)
-
+        try:
+            with open(self.url_text,'r',encoding='utf-8') as f:
+                for url in f.readlines():
+                    self.topic_url.add(url.strip())
+        except FileNotFoundError as e:
+            print('路径不存在，表示为第一次开始做题',{e})
+        with open("user_date.json", 'r', encoding='utf-8') as f:
+                json_date = json.load(f)
+        self.data = {
+                "account" : json_date["user_date"]["user_name"],
+                "ciphertext": json_date["user_date"]["password"]
+            }            
+    
         # 请求方法
     def session_url(self):
         Referer = "https://www.mosoteach.cn/web/index.php?c=passport"
