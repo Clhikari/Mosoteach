@@ -1,6 +1,6 @@
 {
-    "user_date" : [
-        "you_user_name",
-        "you_password"
-    ]
+    "user_date" : {
+        "user_name" : "some_name",
+        "password" : "some_password"
+    }
 }
