@@ -180,9 +180,9 @@ class selenium_data(yun_ban_ke):
         try:
             user_name = self.driver.find_element(By.ID,"account-name")
             password = self.driver.find_element(By.ID,"user-pwd")
-            user_name.send_keys("18132487973")
+            user_name.send_keys(self.data["account"])
             time.sleep(1)
-            password.send_keys("200510qq.")
+            password.send_keys(self.data['ciphertext'])
             time.sleep(2)
             son_1 = self.driver.find_element(By.ID,"login-button-1")
             son_1.click()
