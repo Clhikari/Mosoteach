@@ -34,16 +34,17 @@ class yun_ban_ke:
         except FileNotFoundError as e:
             print('路径不存在，表示为第一次开始做题',{e})
         with open("user_date.json", 'r', encoding='utf-8') as f:
-                json_date = json.load(f)
+                self.json_date = json.load(f)
         self.user_data = {
-                "account" : json_date["user_date"]["user_name"],
-                "ciphertext": json_date["user_date"]["password"]
+                "account" : self.json_date["user_date"]["user_name"],
+                "ciphertext": self.json_date["user_date"]["password"]
             }            
     
         # 请求方法
     def session_url(self):
         Referer = "https://www.mosoteach.cn/web/index.php?c=passport"
         html_data = self.session.post(url=self.url,headers={"Referer":Referer},proxies=self.proxies,timeout=15,data=self.user_data)
+        self.user_data['password'] = self.json_date["user_date"]['password']
         html_data.raise_for_status()
         html_data.encoding = html_data.apparent_encoding
         print(html_data.text)
