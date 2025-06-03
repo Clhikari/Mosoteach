@@ -182,7 +182,7 @@ class selenium_data(yun_ban_ke):
             password = self.driver.find_element(By.ID,"user-pwd")
             user_name.send_keys(self.user_data["account"])
             time.sleep(1)
-            password.send_keys(self.user_data['ciphertext'])
+            password.send_keys(self.user_data['password'])
             time.sleep(2)
             son_1 = self.driver.find_element(By.ID,"login-button-1")
             son_1.click()
