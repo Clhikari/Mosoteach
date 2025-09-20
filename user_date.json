@@ -1,7 +1,0 @@
-{
-    "user_date" : {
-        "user_name" : "some_name",
-        "password_encryption" : "some_password",
-        "password" : "you_password"
-    }
-}

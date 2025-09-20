@@ -1,10 +1,15 @@
+import json
 import requests
 import time
 from lxml import etree
 import os
+import re
 import random
-import json
-
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium import webdriver
+from rich.console import Console
 class yun_ban_ke:
     def __init__(self):
         self.url = "https://www.mosoteach.cn/web/index.php?c=clazzcourse&m=index"
@@ -12,19 +17,35 @@ class yun_ban_ke:
                             'http': 'socks5h://127.0.0.1:7897',
                             'https': 'socks5h://127.0.0.1:7897'
                         }
+        self.file_path = "./yunbaike_dome/user_data.json"
+        with open(self.file_path, 'r', encoding='utf-8') as f:
+                self.json_date = json.load(f)
+        self.user_data = {
+                "account" : self.json_date["user_data"]["user_name"],
+                "ciphertext": self.json_date["user_data"]["password_encryption"]
+            }
+        self.Cookie = self.json_date["user_data"]["Cookie"]
         self.session = requests.Session()
         self.session.headers.update({
-            "cookie" : "_uab_collina=174728336884969406676243; b-user-id=10ca73a3-efcc-e59a-eeb1-4493c14b3bf4; acw_tc=0a0966d617478890811671009e2b59c212232a84bc2c9668b527602aa1ac9c; teachweb=687aae30819fe7a5e5ba0f8af118c021e45925f0; SERVERID=8225607901597b15a5eced5225327c48|1747889093|1747889081; tfstk=gBHmLpbZWjPXIrT8wYwXtMF_wOO8h-w_JVBTWRUwazz5kZBxbA0ib46tMITfjb0Zyr7vcCgkI40EMNnaBGmahYhABrLbIcuLIeLpppnjcWwwJeLYkcUQQlJT7QFqYqyhheLppLQbOKWHJVnZzJtufzr4bOywq8rTYRrN3VzzakrduRuZ7zzzDksV0PWVz_z7bRzZ7R-uUzZgQPljg1anl2HyPagvtDv6CYq0iyXTrOXMXoV08mzk8ekkdS4E0zXwuqlebP4SLUdoVVlqkugMKU2EO4DgTRvcRocrx8zYLBfun03jK-kHotE8srcr37jNQ8y8S2hioEfbuj3uOuPPjpZ-Jzoj3bx1zmuLo-rzwp-n45l-hWMvzt2EOmex_28RMrl3bg8Ra6PHJOZyXY511Sr7qyF4IXWv0QZHg3xlOLP4Vo9kq3f11Sr7qyKkq69zguZXE",
+            "cookie" : self.Cookie,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
         })
+        self.chrome_options = Options()
+        self.chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36(KHTML, like ) Chrome/136.0.self.0.0 Safari/537.36")
+        # chrome_options.add_argument('--headless=new')  # 使用新的无头模式
+        self.chrome_options.add_argument('--disable-gpu')
+        self.chrome_options.add_argument('--disable-dev-shm-usage') # 克服资源限制问题
+        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
+        self.chrome_options.add_experimental_option('useAutomationExtension', False)
         self.interactionUrl = "https://www.mosoteach.cn/web/index.php?c=interaction&m=index"
         self.pre = "https://www.mosoteach.cn/web/index.php?c=interaction_quiz&m=start_quiz_confirm&clazz_course_id="
-        self.path = "url_test"
-        self.url_text = "url_test/url.txt"
+        self.path = "./yunbaike_dome/url_test"
+        self.url_text = "./yunbaike_dome/url_test/url.txt"
         self.topic_url = set() # 存储文件里的题目
         self.test_list = [] # 存储正在处理的题目
         self.url_list = [] # 存储测试题的url
         self.id = []
+        self.CHROME_DRIVER_PATH = "YOU_PATH_"
         if not os.path.exists(self.path):
             os.makedirs(self.path,exist_ok=True)
         try:
@@ -32,24 +53,70 @@ class yun_ban_ke:
                 for url in f.readlines():
                     self.topic_url.add(url.strip())
         except FileNotFoundError as e:
-            print('路径不存在，表示为第一次开始做题',{e})
-        with open("user_date.json", 'r', encoding='utf-8') as f:
-                self.json_date = json.load(f)
-        self.user_data = {
-                "account" : self.json_date["user_date"]["user_name"],
-                "ciphertext": self.json_date["user_date"]["password"]
-            }            
-    
+            self.console.print('路径不存在，表示为第一次开始做题',{e})
+        
+        self.console = Console()
+        
+    def driver_run(self):
+        service = Service(executable_path=self.CHROME_DRIVER_PATH)
+        driver = webdriver.Chrome(service=service, options=self.chrome_options)
+        driver.get(self.url)
+        time.sleep(5)
+        try:
+            user_name = driver.find_element(By.ID,"account-name")
+            password = driver.find_element(By.ID,"user-pwd")
+            user_name.send_keys(self.user_data['account'])
+            time.sleep(1)
+            password.send_keys(self.user_data['password'])
+            time.sleep(2)
+            son_1 = driver.find_element(By.ID,"login-button-1")
+            son_1.click()
+            time.sleep(10) # 等待登录跳转
+            Cookies_list = driver.get_cookies()
+            cookie_string = "; ".join([f"{cookie['name']}={cookie['value']}" for cookie in Cookies_list])
+            return cookie_string
+        except Exception as e_login:
+            self.console.print(f"登录过程中发生错误: {e_login}")
+            return None
+        finally:
+            driver.quit()
+        
         # 请求方法
     def session_url(self):
         Referer = "https://www.mosoteach.cn/web/index.php?c=passport"
         html_data = self.session.post(url=self.url,headers={"Referer":Referer},proxies=self.proxies,timeout=15,data=self.user_data)
-        self.user_data['password'] = self.json_date["user_date"]['password']
+        self.user_data['password'] = self.json_date["user_data"]['password']
         html_data.raise_for_status()
         html_data.encoding = html_data.apparent_encoding
-        print(html_data.text)
+        self.console.print(html_data.text)
+        str_data = html_data.text
+        text_to_find = "sort-class-info"
+        escaped_pattern = re.escape(text_to_find)
+        find_data = re.findall(escaped_pattern, str_data,re.S)
+        if find_data and len(find_data) == 0:
+            self.console.print("Cookie已过期或为空")
+            cookie_string = self.driver_run()
+            if cookie_string:
+                    self.session.headers.update({"cookie": cookie_string})
+                    # 重新发起请求
+                    html_data = self.session.post(url=self.url, headers={"Referer": Referer}, proxies=self.proxies, timeout=15, data=self.user_data)
+                    html_data.raise_for_status()
+                    html_data.encoding = html_data.apparent_encoding
+                    # 读取文件
+                    with open(self.file_path, 'r', encoding='UTF-8') as f:
+                        date = json.load(f)
+                    # 把新的Cookie写入到文件
+                    date["user_data"]["Cookie"] = cookie_string
+                    with open(self.file_path, 'w', encoding='UTF-8') as f:
+                        json.dump(date, f, ensure_ascii=False, indent=4)
+                    self.console.print(html_data.text)
+            else:
+                self.console.print("Driver未能成功获取Cookie")
+                return None
         et = etree.HTML(html_data.text)
         return et
+    
+    
     
     # 处理课程名称
     def course_name_data(self):
@@ -57,7 +124,7 @@ class yun_ban_ke:
         name_list = [] # 存储所有课程名称
         course_name = et.xpath('//div[@class="sort-class-info"]')
         if course_name != []:
-            for name in course_name:
+            for name in course_name: # type: ignore
                 text = name.xpath('./span[1]/text()')
                 name_list.append(text[0])
         return name_list
@@ -66,7 +133,7 @@ class yun_ban_ke:
     def link_data(self):
         et = self.session_url()
         all_piece = et.xpath('//section[@class="pop-sort pop-sort-class"]/ul/li') # 定位所有课程的id
-        # print(all_piece)
+        # self.console.print(all_piece)
         # input()
         link_list = [] # 存储所有课程的链接
         if all_piece != []:
@@ -90,11 +157,11 @@ class yun_ban_ke:
     
     # 对课程页面进行处理
     def son_deal_with(self,son_html_data,link,i):
-        # print(son_html_data.text)
+        # self.console.print(son_html_data.text)
         et =etree.HTML(son_html_data.text)
         activity = et.xpath('//div[@class="interaction-rows"]/div') # 获得所有的活动
         number = et.xpath('//*[@id="0"]//div/div[1]/div[3]/div[1]/span[3]') # 判断是否是题目
-        # print(number)
+        # self.console.print(number)
         if activity == [] or number == []:
             return
         
@@ -107,7 +174,7 @@ class yun_ban_ke:
             id_data = self.id[i]
             url = self.pre  + id_data + "&id=" + id_ + "&order_item=group"
             self.test_list.append(url)
-            print(url)
+            self.console.print(url)
     
     # 进入每道题目的url
     def test_data(self):
@@ -118,7 +185,7 @@ class yun_ban_ke:
             html_data = self.session.get(url=url_not_done,timeout=15,proxies=self.proxies)
             html_data.raise_for_status()
             html_data.encoding = html_data.apparent_encoding
-            # print(html_data.text)
+            # self.console.print(html_data.text)
             et = etree.HTML(html_data.text)
             html_text = et.xpath('//div[@class="hidden-box hidden-url"]/text()')
             if html_text == []:
@@ -126,7 +193,7 @@ class yun_ban_ke:
                 html_son = self.session.get(url=url,proxies=self.proxies,timeout=15)
                 html_son.raise_for_status()
                 html_son.encoding = html_son.apparent_encoding
-                print(html_son)
+                self.console.print(html_son)
                 et = etree.HTML(html_son.text)
                 html_text = et.xpath('//div[@class="hidden-box hidden-url"]/text()')
                 T = self.url_pa(html_text)
@@ -138,7 +205,7 @@ class yun_ban_ke:
             if T is True:
                 T = False
                 continue
-            print(html_text)
+            self.console.print(html_text)
             self.url_list.append(html_text)
             # return self.url_list
         # self.data_parse()

@@ -1,13 +1,14 @@
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.service import Service
 from yun_ban_ke import yun_ban_ke
 import time
 from lxml import etree
 from Model_reasoning import ModelReasoning
+from Model_gemini import Model_gemini
 from collections import defaultdict
 import os
 import re
@@ -18,14 +19,8 @@ class selenium_data(yun_ban_ke):
         super().__init__()
         self.data = None
         self.model = ModelReasoning()
+        self.model_gemini = Model_gemini() # 可选
         self.driver = None
-        self.chrome_options = Options()
-        self.chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36(KHTML, like ) Chrome/136.0.self.0.0 Safari/537.36")
-        # chrome_options.add_argument('--headless=new')  # 使用新的无头模式
-        self.chrome_options.add_argument('--disable-gpu')
-        self.chrome_options.add_argument('--disable-dev-shm-usage') # 克服资源限制问题
-        self.chrome_options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        self.chrome_options.add_experimental_option('useAutomationExtension', False)
         self.topic_count = 0 # 题目数量统计
         self.url_count = 0 # 测试题数量
         self.out_count = None
@@ -48,8 +43,9 @@ class selenium_data(yun_ban_ke):
         pattern = r'^\d+\.'
         for line,lalen,option,text_type in zip(all_text,data,option_labels_selenium,option_type):
             text_type = text_type.xpath('./text()')[0]
-            question_stem = line.xpath('.//text()')[0] # 获得题目标题
-            print(question_stem)
+            question_stem = line.xpath('.//text()') # 获得题目标题
+            question_stem = "".join([text.strip() for text in question_stem if text.strip()])
+            self.console.print(question_stem)
             lalen_list = lalen.xpath('./following-sibling::div[contains(@class, "t-option") and contains(@class, "t-item")]')
             if lalen_list != []:
                 lalen_list = lalen_list[0]
@@ -68,7 +64,7 @@ class selenium_data(yun_ban_ke):
                 self.data += f"""{question_stem}"""
                 self.for_index(lalen_list)
             # 设置数据并处理
-            print(text_type)
+            self.console.print(text_type)
             self.model.set_data(text_type + '\n' + self.data)
             time.sleep(0.2)
             answer = self.model.deal_with() # 获得答案
@@ -77,7 +73,7 @@ class selenium_data(yun_ban_ke):
             self.Click(answer,option,text_type,out_text)
             time.sleep(1)
             self.topic_count += 1
-            print(f"-------------------------------------------已完成第{self.topic_count}题--------------------------------------")
+            self.console.print(f"-------------------------------------------已完成第{self.topic_count}题--------------------------------------")
         self.submit_answer(quiz_page_url_data)
 
     def for_index(self,lalen_list):
@@ -85,7 +81,7 @@ class selenium_data(yun_ban_ke):
             num_1 = number.xpath('./span[2]/div/span[1]/text()')[0] # 选项字母
             num_2 = number.xpath('./span[2]/div/span[2]/text()')[0] # 选项文字
             self.data += f"""\n{num_1.strip()}{num_2.strip()}"""
-            print(num_1,num_2)
+            self.console.print(num_1,num_2)
         
     def fill_in_the_blank(self,line,lines,current_line_parts,question_stem):
         for br in line.xpath('child::node()'):
@@ -124,12 +120,13 @@ class selenium_data(yun_ban_ke):
             path = os.path.join(self.path,url)
             with open(path,'a',encoding='utf-8') as f: # 把处理过的测试题url写入文件
                 f.write("\n" + quiz_page_url_data[0])
+                self.console.print(f"已将{quiz_page_url_data[0]}写入到文件中")
             time.sleep(5)
         except ElementNotInteractableException as e:
-                print(f"不可交互{e},使用js")
+                self.console.print(f"不可交互{e},使用js")
                 element_for_js_click = self.driver.find_element(*son) # 重新定位
                 self.driver.execute_script("arguments[0].click();", element_for_js_click)
-                print("已使用 JavaScript 点击。")
+                self.console.print("已使用 JavaScript 点击。")
                 url = "url.txt"
                 path = os.path.join(self.path,url)
                 with open(path,'a',encoding='utf-8') as f: # 把处理过的测试题url写入文件
@@ -152,8 +149,10 @@ class selenium_data(yun_ban_ke):
                     all_option_labels_selenium = WebDriverWait(self.driver, 5).until(
                     EC.element_to_be_clickable(index)
                     )
-                    all_option_labels_selenium.click()
+                    self.driver.execute_script("arguments[0].click();", all_option_labels_selenium)
                     break
+                
+                
                 elif len(answer) != 1:
                     for line in answer:
                         if line == letter and cut[line] < 1:
@@ -174,13 +173,14 @@ class selenium_data(yun_ban_ke):
     def run(self):
         self.test_data()
         login_url = 'https://www.mosoteach.cn/web/index.php?c=passport&m=index'
-        self.driver = webdriver.Chrome(options=self.chrome_options)
+        service = Service(executable_path=self.CHROME_DRIVER_PATH)
+        self.driver = webdriver.Chrome(service=service, options=self.chrome_options)
         self.driver.get(url=login_url)
         time.sleep(3)
         try:
             user_name = self.driver.find_element(By.ID,"account-name")
             password = self.driver.find_element(By.ID,"user-pwd")
-            user_name.send_keys(self.user_data["account"])
+            user_name.send_keys(self.user_data['account'])
             time.sleep(1)
             password.send_keys(self.user_data['password'])
             time.sleep(2)
@@ -188,17 +188,17 @@ class selenium_data(yun_ban_ke):
             son_1.click()
             time.sleep(10) # 等待登录跳转
         except Exception as e_login:
-            print(f"登录过程中发生错误: {e_login}")
-            self.close_driver()
+            self.console.print(f"登录过程中发生错误: {e_login}")
+            self.driver.quit()
             return
         self.url_count = len(self.url_list)
         if len(self.url_list) == 0:
-            print("----------------------当前已无测试题可做------------------------")
+            self.console.print("----------------------当前已无测试题可做------------------------")
             return
-        print(f"------------------共有{self.url_count}个测试题--------------------")
+        self.console.print(f"------------------共有{self.url_count}个测试题--------------------")
         url_list = self.url_list
         for index,quiz_page_url_data in enumerate(url_list):
-            print(f"-----------------------------正在处理第{index + 1}个,还剩{self.url_count - index - 1}个测试题待处理---------------------------")
+            self.console.print(f"-----------------------------正在处理第{index + 1}个,还剩{self.url_count - index - 1}个测试题待处理---------------------------")
             current_quiz_url = quiz_page_url_data[0]
             self.driver.get(url=current_quiz_url)
             time.sleep(5)
@@ -208,16 +208,16 @@ class selenium_data(yun_ban_ke):
                     EC.presence_of_element_located((By.XPATH, '//div[@class="con-list"]'))
                 )
             except TimeoutException:
-                print(f"等待题目容器加载超时:{current_quiz_url}")
+                self.console.print(f"等待题目容器加载超时:{current_quiz_url}")
                 continue
             html_dome = self.driver.page_source
             et = etree.HTML(html_dome)
             all_question_stem_elements = et.xpath('//div[@class="t-subject t-item moso-text moso-editor"]')
-            print(f"找到 {len(all_question_stem_elements)} 个题干元素。")
+            self.console.print(f"找到 {len(all_question_stem_elements)} 个题干元素。")
             if all_question_stem_elements:
                 self.data_processing(all_question_stem_elements,et,quiz_page_url_data)
             else:
-                print("当前页面未找到题干元素。")
+                self.console.print("当前页面未找到题干元素。")
             time.sleep(2) # 处理完一个测验页面后暂停
 
 if __name__ == "__main__":
