@@ -13,10 +13,10 @@ from rich.console import Console
 class yun_ban_ke:
     def __init__(self):
         self.url = "https://www.mosoteach.cn/web/index.php?c=clazzcourse&m=index"
-        self.proxies =  {
-                            'http': 'socks5h://127.0.0.1:7897',
-                            'https': 'socks5h://127.0.0.1:7897'
-                        }
+        # self.proxies =  {
+        #                     'http': 'socks5h://127.0.0.1:7897', 可选择用代理
+        #                     'https': 'socks5h://127.0.0.1:7897'
+        #                 }
         self.file_path = "./yunbaike_dome/user_data.json"
         with open(self.file_path, 'r', encoding='utf-8') as f:
                 self.json_date = json.load(f)
@@ -84,7 +84,7 @@ class yun_ban_ke:
         # 请求方法
     def session_url(self):
         Referer = "https://www.mosoteach.cn/web/index.php?c=passport"
-        html_data = self.session.post(url=self.url,headers={"Referer":Referer},proxies=self.proxies,timeout=15,data=self.user_data)
+        html_data = self.session.post(url=self.url,headers={"Referer":Referer},timeout=15,data=self.user_data)
         self.user_data['password'] = self.json_date["user_data"]['password']
         html_data.raise_for_status()
         html_data.encoding = html_data.apparent_encoding
@@ -99,7 +99,7 @@ class yun_ban_ke:
             if cookie_string:
                     self.session.headers.update({"cookie": cookie_string})
                     # 重新发起请求
-                    html_data = self.session.post(url=self.url, headers={"Referer": Referer}, proxies=self.proxies, timeout=15, data=self.user_data)
+                    html_data = self.session.post(url=self.url, headers={"Referer": Referer}, timeout=15, data=self.user_data)
                     html_data.raise_for_status()
                     html_data.encoding = html_data.apparent_encoding
                     # 读取文件
@@ -150,7 +150,7 @@ class yun_ban_ke:
         Referer = "https://www.mosoteach.cn/"
         for i,link in enumerate(link_list):
             time.sleep(random.uniform(1,3))
-            son_html_data = self.session.get(url=link,headers={"Referer":Referer},proxies=self.proxies,timeout=15)
+            son_html_data = self.session.get(url=link,headers={"Referer":Referer},timeout=15)
             son_html_data.raise_for_status()
             son_html_data.encoding = son_html_data.apparent_encoding
             self.son_deal_with(son_html_data,link,i) # 对每个子链接进行处理
@@ -182,7 +182,7 @@ class yun_ban_ke:
         T = False
         for index,url_not_done in enumerate(self.test_list):
             time.sleep(random.uniform(1,3))
-            html_data = self.session.get(url=url_not_done,timeout=15,proxies=self.proxies)
+            html_data = self.session.get(url=url_not_done,timeout=15)
             html_data.raise_for_status()
             html_data.encoding = html_data.apparent_encoding
             # self.console.print(html_data.text)
@@ -190,7 +190,7 @@ class yun_ban_ke:
             html_text = et.xpath('//div[@class="hidden-box hidden-url"]/text()')
             if html_text == []:
                 url = et.xpath('//div[@class="can-operate-color"]/a/@href')
-                html_son = self.session.get(url=url,proxies=self.proxies,timeout=15)
+                html_son = self.session.get(url=url,timeout=15)
                 html_son.raise_for_status()
                 html_son.encoding = html_son.apparent_encoding
                 self.console.print(html_son)
