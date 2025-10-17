@@ -3,7 +3,7 @@
         "user_name": "YOU_NAME",
         "password": "YOU_PASSWORD",
         "Cookie": "",
-        "Model_ds" : "YOU_KEY",
-        "Model_gemini" : "YOU_KEY"
+        "Model_ds": "YOU_KEY",
+        "Model_gemini": "YOU_KEY"
     }
 }
