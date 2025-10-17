@@ -7,7 +7,7 @@ class Model_gemini:
     def __init__(self):
         self.data = None
         self.console = Console()
-        key_path = "./user_data.json"
+        key_path = "yunbaike_dome/user_data.json"
         self.Api_key = ""
         with open(key_path, 'r', encoding='utf-8') as f:
             self.Api_key = json.load(f)["user_data"]["Model_gemini"]
@@ -22,7 +22,7 @@ class Model_gemini:
             
         # 构建客户端
         client = OpenAI(
-            api_key=self.Api_key,
+            api_key="",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
 
@@ -45,6 +45,3 @@ class Model_gemini:
         except Exception as e:
             self.console.print(f"发生异常: {e}")
             traceback.print_exc()
-            
-if __name__ == "__main__":
-    m = Model_gemini()
