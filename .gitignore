@@ -1,0 +1,10 @@
+# IDE
+GEMINI.md
+CLAUDE.md
+
+# Build output
+*.exe
+*.exe~
+
+# Config with sensitive data
+user_data.json
