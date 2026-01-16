@@ -2,9 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 )
 
@@ -55,6 +57,7 @@ type ConfigFile struct {
 	Models        []ModelConfig `json:"models"`
 	CachedQuizzes []CachedQuiz  `json:"cached_quizzes,omitempty"`
 	CompletedURLs []string      `json:"completed_urls,omitempty"`
+	Debug         bool          `json:"debug,omitempty"`
 }
 
 // Config 全局配置管理
@@ -67,6 +70,7 @@ type Config struct {
 	ChromeBinaryPath string
 	IsLinux          bool
 	CompletedURLs    map[string]bool
+	Debug            bool
 }
 
 var (
@@ -128,7 +132,7 @@ func getDefaultModels() []ModelConfig {
 			Name:    "Ollama",
 			Enabled: false,
 			BaseURL: "http://localhost:11434/v1",
-			APIKey:  "ollama",
+			APIKey:  "",
 			Model:   "qwen3:8b",
 		},
 	}
@@ -219,6 +223,10 @@ func (c *Config) Load() error {
 		c.CompletedURLs[url] = true
 	}
 
+	// 加载调试模式配置并设置日志级别
+	c.Debug = configFile.Debug
+	setupLogger(c.Debug)
+
 	return nil
 }
 
@@ -242,6 +250,7 @@ func (c *Config) saveInternal() error {
 		Models:        c.Models,
 		CachedQuizzes: c.CachedQuizzes,
 		CompletedURLs: completedURLs,
+		Debug:         c.Debug,
 	}
 
 	data, err := json.MarshalIndent(configFile, "", "    ")
@@ -390,11 +399,6 @@ func (c *Config) ValidateUserData() []ValidationError {
 			Field:   "user_name",
 			Message: "用户名不能为空",
 		})
-	} else if len(c.UserData.UserName) != 11 {
-		errors = append(errors, ValidationError{
-			Field:   "user_name",
-			Message: "用户名应为11位手机号",
-		})
 	}
 
 	if c.UserData.Password == "" {
@@ -420,19 +424,19 @@ func (c *Config) ValidateModels() []ValidationError {
 			hasEnabled = true
 			if m.APIKey == "" {
 				errors = append(errors, ValidationError{
-					Field:   "models[" + string(rune('0'+i)) + "].api_key",
+					Field:   "models[" + strconv.Itoa(i) + "].api_key",
 					Message: "已启用的模型 " + m.Name + " 缺少 API Key",
 				})
 			}
 			if m.BaseURL == "" {
 				errors = append(errors, ValidationError{
-					Field:   "models[" + string(rune('0'+i)) + "].base_url",
+					Field:   "models[" + strconv.Itoa(i) + "].base_url",
 					Message: "已启用的模型 " + m.Name + " 缺少 Base URL",
 				})
 			}
 			if m.Model == "" {
 				errors = append(errors, ValidationError{
-					Field:   "models[" + string(rune('0'+i)) + "].model",
+					Field:   "models[" + strconv.Itoa(i) + "].model",
 					Message: "已启用的模型 " + m.Name + " 缺少模型名称",
 				})
 			}
@@ -473,4 +477,16 @@ func (c *Config) IsReady() (bool, string) {
 	}
 
 	return true, "就绪"
+}
+
+// setupLogger 设置日志级别
+func setupLogger(debug bool) {
+	var level slog.Level
+	if debug {
+		level = slog.LevelDebug
+	} else {
+		level = slog.LevelInfo
+	}
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(handler))
 }
