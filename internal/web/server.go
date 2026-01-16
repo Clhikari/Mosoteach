@@ -308,13 +308,16 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 			s.mu.Lock()
 			s.status.Running = false
 			s.cancelFunc = nil
+			s.executor = nil
 			s.mu.Unlock()
 		}()
 
 		s.sendSSEEvent(ProgressEvent{Type: "log", Message: "正在启动浏览器..."})
 
 		executor := browser.NewBrowserExecutorWithCallback(s.progressCallback)
+		s.mu.Lock()
 		s.executor = executor
+		s.mu.Unlock()
 
 		var err error
 		if len(req.QuizURLs) > 0 {
