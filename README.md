@@ -97,7 +97,7 @@ go build -o mosoteach.exe ./cmd/main.go
 
 ## 📄 许可证
 
-本项目基于 [MIT License](LICENSE) 开源。
+本项目基于 [GPL-3.0 License](LICENSE) 开源。
 
 ---
 
