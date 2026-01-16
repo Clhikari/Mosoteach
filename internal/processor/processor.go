@@ -2,6 +2,7 @@ package processor
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
@@ -127,16 +128,11 @@ func (p *DataProcessor) FetchCourseList() ([]string, error) {
 	if p.cfg.UserData.Cookie == "" {
 		return nil, fmt.Errorf("Cookie为空，请先运行一次答题任务以获取登录Cookie")
 	}
-	fmt.Printf("Cookie长度: %d\n", len(p.cfg.UserData.Cookie))
 
 	doc, err := p.doRequest("GET", courseURL, baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("获取课程列表失败: %w", err)
 	}
-
-	// 调试：输出页面标题判断是否登录成功
-	title := doc.Find("title").Text()
-	fmt.Printf("页面标题: %s\n", title)
 
 	var courseNames []string
 	var totalItems int
@@ -148,8 +144,6 @@ func (p *DataProcessor) FetchCourseList() ([]string, error) {
 		// 获取状态
 		status, _ := s.Attr("data-status")
 		id, hasID := s.Attr("data-id")
-
-		fmt.Printf("  课程 %d: status=%s, id=%s\n", i+1, status, id)
 
 		// 只获取开放的课程 (data-status="OPEN")
 		if status != "OPEN" {
@@ -170,27 +164,11 @@ func (p *DataProcessor) FetchCourseList() ([]string, error) {
 				name = "未命名课程"
 			}
 			courseNames = append(courseNames, name)
-			fmt.Printf("    -> 添加课程: %s\n", name)
+			slog.Debug("找到课程", "name", name, "id", id)
 		}
 	})
 
-	// 如果方式1找不到，调试输出HTML结构
-	if totalItems == 0 {
-		fmt.Println("未找到 li.class-item，尝试查找其他元素...")
-		// 输出页面中包含 class-item 的元素数量
-		classItemCount := doc.Find("[class*='class-item']").Length()
-		fmt.Printf("包含 'class-item' 的元素数量: %d\n", classItemCount)
-
-		// 输出 ul 的数量
-		ulCount := doc.Find("ul").Length()
-		fmt.Printf("ul 元素数量: %d\n", ulCount)
-
-		// 输出 li 的数量
-		liCount := doc.Find("li").Length()
-		fmt.Printf("li 元素数量: %d\n", liCount)
-	}
-
-	fmt.Printf("总共找到 %d 个课程项，其中 %d 个开放\n", totalItems, len(p.courseIDs))
+	slog.Debug("课程统计", "total", totalItems, "open", len(p.courseIDs))
 	p.courseNames = courseNames
 	return courseNames, nil
 }
@@ -211,7 +189,6 @@ func (p *DataProcessor) FetchPendingQuizzes() ([]QuizInfo, error) {
 		interactURL := interactionURL + "&clazz_course_id=" + courseID
 		doc, err := p.doRequest("GET", interactURL, baseURL)
 		if err != nil {
-			fmt.Printf("获取课程 %s 互动页面失败: %v\n", courseID, err)
 			continue
 		}
 
@@ -261,7 +238,7 @@ func (p *DataProcessor) parseInteractions(doc *goquery.Document, courseID string
 			QuizID:   quizID,
 			Name:     quizName,
 		})
-		fmt.Printf("  找到题库: %s\n", quizName)
+		slog.Debug("找到测验", "name", quizName, "quiz_id", quizID, "course_id", courseID)
 	})
 }
 
@@ -274,7 +251,6 @@ func (p *DataProcessor) fetchQuizURLs() ([]QuizInfo, error) {
 
 		doc, err := p.doRequest("GET", quiz.URL, baseURL)
 		if err != nil {
-			fmt.Printf("获取测验页面失败: %v\n", err)
 			continue
 		}
 
@@ -300,8 +276,10 @@ func (p *DataProcessor) fetchQuizURLs() ([]QuizInfo, error) {
 				Name:      quiz.Name,
 				Completed: completed,
 			})
+			slog.Debug("获取测验URL", "name", quiz.Name, "completed", completed)
 		}
 	}
 
+	slog.Debug("测验统计", "total", len(p.quizList), "valid", len(validQuizzes))
 	return validQuizzes, nil
 }
