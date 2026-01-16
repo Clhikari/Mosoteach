@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mosoteach</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="/css/style.css" />
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem("theme") || "dark";
+            document.documentElement.setAttribute("data-theme", savedTheme);
+        })();
+    </script>
+</head>
+
+<body>
+    <div id="app" class="app-layout">
+        <!-- Toast 提示 -->
+        <div v-if="toast.show" :class="['toast', toast.type]">
+            {{ toast.message }}
+        </div>
+
+        <!-- 左侧侧边栏：导航与核心状态 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">MosoHelper</div>
+                <div class="version">v2.0.0</div>
+            </div>
+
+            <div class="user-card">
+                <div class="avatar-placeholder">
+                    {{ (config.maskedUser[0] || 'U').toUpperCase() }}
+                </div>
+                <div class="user-details">
+                    <div class="user-name">{{ config.maskedUser || '未登录' }}</div>
+                    <div class="user-status" :class="{ online: config.hasCookie }">
+                        {{ config.hasCookie ? '在线' : '离线' }}
+                    </div>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <button v-for="tab in tabs" :key="tab.id" :class="['nav-item', { active: currentTab === tab.id }]"
+                    @click="currentTab = tab.id">
+                    <span class="nav-icon">{{ tab.icon }}</span>
+                    <span class="nav-label">{{ tab.name }}</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? '切换亮色' : '切换暗色'">
+                    {{ theme === 'dark' ? '🌙' : '☀️' }}
+                </button>
+                <div class="sse-status" :class="{ connected: sseConnected }">
+                    {{ sseConnected ? 'LINKED' : 'DISCONNECTED' }}
+                </div>
+            </div>
+        </aside>
+
+        <!-- 中间主工作区 -->
+        <main class="main-content">
+            <!-- 顶部工具栏 -->
+            <header class="top-bar">
+                <h2 class="page-title">{{ currentTabName }}</h2>
+                <div class="global-actions">
+                    <button class="btn-icon" @click="loadStatus" title="刷新状态">
+                        🔄
+                    </button>
+                </div>
+            </header>
+
+            <!-- 动态内容区 -->
+            <div class="content-body">
+                <!-- 1. 自动答题视图 -->
+                <div v-show="currentTab === 'answer'" class="view-answer">
+                    <div class="control-panel card">
+                        <div class="panel-header">
+                            <h3>控制台</h3>
+                            <div class="status-badge" :class="{ running: status.running }">
+                                {{ status.running ? '运行中' : '空闲' }}
+                            </div>
+                        </div>
+                        <div class="panel-actions">
+                            <button class="btn primary" @click="startAnswer" :disabled="status.running">
+                                ▶ {{ selectedQuiz.length > 0 ? '答选中题库' : '开始答题' }}
+                            </button>
+                            <button class="btn secondary" @click="selectedQuiz = []" v-if="selectedQuiz.length > 0"
+                                :disabled="status.running">
+                                ✕ 清空选择
+                            </button>
+                            <button class="btn danger" @click="stopAnswer" :disabled="!status.running">
+                                ⏹ 停止
+                            </button>
+                            <button class="btn secondary" @click="doLogin" :disabled="status.running || loggingIn">
+                                🔑 登录刷新
+                            </button>
+                        </div>
+                        <div class="selected-quiz-hint" v-if="selectedQuiz.length > 0">
+                            已选择: {{ selectedQuizName }}
+                        </div>
+                        <div class="progress-block" v-if="status.total > 0 || status.running">
+                            <div class="progress-labels">
+                                <span>{{ status.message }}</span>
+                                <span class="mono">{{ status.progress }}/{{ status.total }}</span>
+                            </div>
+                            <div class="progress-track">
+                                <div class="progress-bar" :style="{ width: progressPercent + '%' }"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quiz-panel card">
+                        <div class="panel-header">
+                            <h3>题库列表</h3>
+                            <button class="btn-text" @click="loadQuizzes" :disabled="loadingQuizzes">
+                                刷新
+                            </button>
+                        </div>
+                        <div class="quiz-list-container">
+                            <div v-if="loadingQuizzes" class="loading-state">加载中...</div>
+                            <div v-else-if="quizzes.length === 0" class="empty-state">
+                                暂无题库数据
+                            </div>
+
+                            <div v-else v-for="(courseQuizzes, courseName) in groupedQuizzes" :key="courseName"
+                                class="course-section">
+                                <div class="course-header">{{ courseName }}</div>
+                                <div class="quiz-grid">
+                                    <div v-for="quiz in courseQuizzes" :key="quiz.url"
+                                        :class="['quiz-card', { completed: quiz.completed, selected: selectedQuiz.includes(quiz.url) }]"
+                                        @click="selectQuiz(quiz)">
+                                        <div class="quiz-icon">
+                                            {{ quiz.completed ? '✅' : '📝' }}
+                                        </div>
+                                        <div class="quiz-info">
+                                            <div class="quiz-name" :title="quiz.name">
+                                                {{ quiz.name }}
+                                            </div>
+                                            <div class="quiz-meta" :title="'ID: ' + (quiz.quizId || 'Unknown')">
+                                                ID: {{ (quiz.quizId || 'Unknown').substring(0, 8)
+                                                }}...
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 模型配置 -->
+                <div v-show="currentTab === 'models'" class="view-models">
+                    <div class="card">
+                        <div class="panel-header">
+                            <h3>AI 模型管理</h3>
+                            <button class="btn primary small" @click="saveModels" :disabled="savingModels">
+                                保存配置
+                            </button>
+                        </div>
+                        <div class="models-grid">
+                            <div v-for="(model, idx) in models" :key="idx" class="model-edit-card">
+                                <div class="model-top">
+                                    <input type="checkbox" v-model="model.enabled" class="switch" />
+                                    <input type="text" v-model="model.name" class="input-ghost" placeholder="别名" />
+                                    <button class="btn-icon danger" @click="removeModel(idx)">
+                                        ×
+                                    </button>
+                                </div>
+                                <div class="model-body">
+                                    <div class="form-item">
+                                        <label>Base URL</label>
+                                        <input type="text" v-model="model.base_url" class="input-block" />
+                                    </div>
+                                    <div class="form-item">
+                                        <label>Model Name</label>
+                                        <input type="text" v-model="model.model" class="input-block" />
+                                    </div>
+                                    <div class="form-item">
+                                        <label>API Key</label>
+                                        <input type="password" v-model="model.api_key" class="input-block"
+                                            :placeholder="model.has_api_key ? '已保存' : '输入Key'" />
+                                    </div>
+                                </div>
+                                <div class="model-footer">
+                                    <button class="btn secondary full" @click="testModel(idx)"
+                                        :disabled="model.testing">
+                                        {{ model.testing ? '测试中...' : '连接测试' }}
+                                    </button>
+                                    <div v-if="model.testMessage" :class="['test-result', model.testResult]">
+                                        {{ model.testResult === 'success' ? '✔' : '✘' }} {{
+                                        model.testMessage }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="add-model-card" @click="addModel">
+                                <span>+ 添加新模型</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 账号配置 -->
+                <div v-show="currentTab === 'config'" class="view-config">
+                    <div class="card config-card">
+                        <h3>账号设置</h3>
+                        <form @submit.prevent="saveConfig">
+                            <div class="form-item">
+                                <label>手机号</label>
+                                <input type="text" v-model="configForm.user_name" class="input-block" />
+                            </div>
+                            <div class="form-item">
+                                <label>密码</label>
+                                <input type="password" v-model="configForm.password" class="input-block"
+                                    placeholder="不修改请留空" />
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary" :disabled="saving">
+                                    保存更改
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 5. 运行日志 (独立页面) -->
+                <div v-show="currentTab === 'logs'" class="view-logs">
+                    <div class="card full-height-card">
+                        <div class="panel-header">
+                            <h3>SYSTEM TERMINAL</h3>
+                            <button class="btn-icon" @click="logs = []" title="清空日志">
+                                🗑
+                            </button>
+                        </div>
+                        <div class="log-full-container" ref="logContainer">
+                            <div v-for="(log, index) in logs" :key="index" :class="['log-line', log.type]">
+                                <span class="ts">{{ log.time }}</span>
+                                <span class="msg">{{ log.message }}</span>
+                            </div>
+                            <div v-if="logs.length === 0" class="log-placeholder">
+                                > SYSTEM READY... WAITING FOR INPUT
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const {
+            createApp,
+            ref,
+            reactive,
+            computed,
+            onMounted,
+            onUnmounted,
+            nextTick,
+        } = Vue;
+
+        createApp({
+            setup() {
+                const tabs = [
+                    { id: "answer", name: "自动答题", icon: "🚀" },
+                    { id: "models", name: "模型管理", icon: "🤖" },
+                    { id: "config", name: "系统设置", icon: "⚙️" },
+                    { id: "logs", name: "运行日志", icon: "📜" },
+                ];
+                const currentTab = ref("answer");
+                const theme = ref(localStorage.getItem("theme") || "dark");
+
+                // 核心数据
+                const config = reactive({ maskedUser: "", hasCookie: false });
+                const configForm = reactive({ user_name: "", password: "" });
+                const status = reactive({
+                    running: false,
+                    message: "Ready",
+                    progress: 0,
+                    total: 0,
+                });
+                const logs = ref([]);
+                const quizzes = ref([]);
+                const models = ref([]);
+
+                // UI 状态
+                const loadingQuizzes = ref(false);
+                const saving = ref(false);
+                const savingModels = ref(false);
+                const loggingIn = ref(false);
+                const selectedQuiz = ref([]); // 改为数组支持多选
+                const sseConnected = ref(false);
+                const logContainer = ref(null);
+                const toast = reactive({ show: false, message: "", type: "success" });
+
+                let eventSource = null;
+                let statusInterval = null;
+                let toastTimer = null;
+                const currentTabName = computed(
+                    () => tabs.find((t) => t.id === currentTab.value)?.name
+                );
+                const progressPercent = computed(() =>
+                    status.total ? (status.progress / status.total) * 100 : 0
+                );
+                const selectedQuizName = computed(() => {
+                    if (selectedQuiz.value.length === 0) return "";
+                    if (selectedQuiz.value.length === 1) {
+                        const quiz = quizzes.value.find(
+                            (q) => q.url === selectedQuiz.value[0]
+                        );
+                        return quiz ? quiz.name : "未知题库";
+                    }
+                    return `${selectedQuiz.value.length} 个题库`;
+                });
+
+                const groupedQuizzes = computed(() => {
+                    const groups = {};
+                    quizzes.value.forEach((q) => {
+                        const name = q.courseName || "未分类课程";
+                        if (!groups[name]) groups[name] = [];
+                        groups[name].push(q);
+                    });
+                    return groups;
+                });
+
+                // ------------------------------------------------
+                // 方法集
+                // ------------------------------------------------
+                const toggleTheme = () => {
+                    theme.value = theme.value === "dark" ? "light" : "dark";
+                    document.documentElement.setAttribute("data-theme", theme.value);
+                    localStorage.setItem("theme", theme.value);
+                };
+
+                const addLog = (message, type = "") => {
+                    logs.value.push({
+                        time: new Date().toLocaleTimeString("en-US", { hour12: false }),
+                        message,
+                        type,
+                    });
+                    if (logs.value.length > 200) logs.value.shift();
+                    nextTick(() => {
+                        if (logContainer.value)
+                            logContainer.value.scrollTop = logContainer.value.scrollHeight;
+                    });
+                };
+
+                const showToast = (message, type = "success") => {
+                    if (toastTimer) clearTimeout(toastTimer);
+                    toast.message = message;
+                    toast.type = type;
+                    toast.show = true;
+                    toastTimer = setTimeout(() => {
+                        toast.show = false;
+                    }, 3000);
+                };
+
+                // API 调用封装 (简化版)
+                const apiCall = async (url, method = "GET", body = null) => {
+                    try {
+                        const opts = {
+                            method,
+                            headers: { "Content-Type": "application/json" },
+                        };
+                        if (body) opts.body = JSON.stringify(body);
+                        const res = await fetch(url, opts);
+                        return await res.json();
+                    } catch (e) {
+                        addLog(`API Error: ${e.message}`, "error");
+                        throw e;
+                    }
+                };
+
+                // 业务逻辑
+                const loadConfig = async () => {
+                    const data = await apiCall("/api/config");
+                    config.maskedUser = data.masked_user || "Guest";
+                    config.hasCookie = data.has_cookie;
+                    if (data.user_name) configForm.user_name = data.user_name;
+                };
+
+                const saveConfig = async () => {
+                    saving.value = true;
+                    const data = await apiCall("/api/config/save", "POST", configForm);
+                    if (data.success) {
+                        showToast(data.message || "配置保存成功");
+                        addLog("配置已保存", "success");
+                        configForm.password = "";
+                        loadConfig();
+                    } else {
+                        showToast(data.message || "保存失败", "error");
+                    }
+                    saving.value = false;
+                };
+
+                const loadQuizzes = async () => {
+                    loadingQuizzes.value = true;
+                    const data = await apiCall("/api/quizzes");
+                    quizzes.value = data || [];
+                    loadingQuizzes.value = false;
+                };
+
+                const loadModels = async () => {
+                    const data = await apiCall("/api/models");
+                    models.value = data.map((m) => ({ ...m, api_key: "" }));
+                };
+
+                const saveModels = async () => {
+                    savingModels.value = true;
+                    const data = await apiCall(
+                        "/api/models/save",
+                        "POST",
+                        models.value
+                    );
+                    if (data.success) {
+                        showToast(data.message || "模型配置保存成功");
+                        addLog("模型配置已更新", "success");
+                    } else {
+                        showToast(data.message || "保存失败", "error");
+                    }
+                    savingModels.value = false;
+                };
+
+                const testModel = async (idx) => {
+                    const m = models.value[idx];
+                    m.testing = true;
+                    m.testMessage = "";
+                    const res = await apiCall("/api/models/test", "POST", m);
+                    m.testing = false;
+                    m.testResult = res.success ? "success" : "error";
+                    m.testMessage = res.message;
+                };
+
+                const startAnswer = async () => {
+                    const body =
+                        selectedQuiz.value.length > 0
+                            ? { quizUrls: selectedQuiz.value }
+                            : {};
+                    const res = await apiCall("/api/start", "POST", body);
+                    if (res.success) {
+                        status.running = true;
+                        addLog("任务队列已启动", "info");
+                    }
+                };
+
+                const stopAnswer = async () => {
+                    await apiCall("/api/stop", "POST");
+                    status.running = false;
+                };
+
+                const doLogin = async () => {
+                    loggingIn.value = true;
+                    const res = await apiCall("/api/login", "POST");
+                    if (res.success) addLog("正在尝试登录...", "info");
+                    loggingIn.value = false;
+                };
+
+                const loadStatus = async () => {
+                    const data = await apiCall("/api/status");
+                    Object.assign(status, data);
+                };
+
+                // SSE 逻辑
+                const connectSSE = () => {
+                    if (eventSource) eventSource.close();
+                    eventSource = new EventSource("/api/events");
+                    eventSource.onopen = () => (sseConnected.value = true);
+                    eventSource.onmessage = (e) => {
+                        const data = JSON.parse(e.data);
+                        if (data.type === "connected") return;
+
+                        // 更新进度（只在非 log 类型事件时更新，因为 log 事件的进度值无意义）
+                        if (data.type !== "log") {
+                            if (data.progress !== undefined) status.progress = data.progress;
+                            if (data.total !== undefined) status.total = data.total;
+                        }
+                        if (data.message && data.type !== "quiz_completed") {
+                            status.message = data.message;
+                            addLog(data.message, data.type);
+                        }
+                        if (
+                            data.type === "complete" ||
+                            data.type === "error" ||
+                            data.type === "cancelled"
+                        ) {
+                            status.running = false;
+                            // 取消时重置进度条
+                            if (data.type === "cancelled") {
+                                status.progress = 0;
+                                status.total = 0;
+                                status.message = "任务已取消";
+                            }
+                            // 完成后刷新缓存（不启动浏览器）
+                            if (data.type === "complete") {
+                                apiCall("/api/quizzes/cache").then((d) => {
+                                    if (d) quizzes.value = d;
+                                });
+                            }
+                        }
+                    };
+                    eventSource.onerror = () => (sseConnected.value = false);
+                };
+
+                // 辅助
+                const addModel = () =>
+                    models.value.push({
+                        name: "New Model",
+                        enabled: true,
+                        base_url: "",
+                        model: "",
+                        api_key: "",
+                    });
+                const removeModel = (i) => models.value.splice(i, 1);
+                const selectQuiz = (q) => {
+                    const idx = selectedQuiz.value.indexOf(q.url);
+                    if (idx === -1) {
+                        selectedQuiz.value.push(q.url);
+                    } else {
+                        selectedQuiz.value.splice(idx, 1);
+                    }
+                };
+
+                // 初始化
+                onMounted(() => {
+                    loadConfig();
+                    loadModels();
+                    loadStatus();
+                    connectSSE();
+                    // 自动加载一次题库缓存
+                    apiCall("/api/quizzes/cache").then((d) => {
+                        if (d) quizzes.value = d;
+                    });
+
+                    statusInterval = setInterval(loadStatus, 2000);
+                });
+
+                onUnmounted(() => {
+                    clearInterval(statusInterval);
+                    if (eventSource) eventSource.close();
+                });
+
+                return {
+                    tabs,
+                    currentTab,
+                    currentTabName,
+                    theme,
+                    toggleTheme,
+                    config,
+                    configForm,
+                    status,
+                    logs,
+                    quizzes,
+                    models,
+                    groupedQuizzes,
+                    progressPercent,
+                    selectedQuizName,
+                    logContainer,
+                    loadingQuizzes,
+                    saving,
+                    savingModels,
+                    loggingIn,
+                    selectedQuiz,
+                    sseConnected,
+                    toast,
+                    loadConfig,
+                    saveConfig,
+                    loadQuizzes,
+                    loadModels,
+                    saveModels,
+                    addModel,
+                    removeModel,
+                    testModel,
+                    startAnswer,
+                    stopAnswer,
+                    doLogin,
+                    selectQuiz,
+                    loadStatus,
+                };
+            },
+        }).mount("#app");
+    </script>
+</body>
+
+</html>
