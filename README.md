@@ -2,7 +2,7 @@
 
 [![Go 版本](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![许可证](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![平台](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](https://github.com/aobo-y/Mosoteach/releases)
+[![平台](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](https://github.com/Clhikari/Mosoteach/releases)
 
 一个为云班课 (Mosoteach) 设计的高性能、AI 驱动的自动化工具，拥有专业仪表盘界面，提供直观的控制和实时监控。
 
@@ -22,7 +22,14 @@
 
 ### 1. 下载
 
-从 [Releases](https://github.com/aobo-y/Mosoteach/releases) 页面下载您操作系统对应的最新版本。
+从 [Releases](https://github.com/Clhikari/Mosoteach/releases) 页面下载您操作系统对应的最新版本：
+
+| 平台 | 文件 |
+|------|------|
+| Windows 64位 | `mosoteach_windows_amd64.exe` |
+| Linux 64位 | `mosoteach_linux_amd64` |
+| macOS Intel | `mosoteach_darwin_amd64` |
+| macOS Apple Silicon | `mosoteach_darwin_arm64` |
 
 ### 2. 运行
 
@@ -59,7 +66,7 @@ Web 操作界面将在 `http://localhost:11451` 启动。
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/aobo-y/Mosoteach.git
+git clone https://github.com/Clhikari/Mosoteach.git
 cd Mosoteach
 
 # 2. 下载依赖
