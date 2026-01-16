@@ -117,13 +117,21 @@ func (m *UnifiedModel) GetAnswer(ctx context.Context, question string) (string, 
 		return "", fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 构建URL（自动处理/v1路径）
+	// 构建URL
+	// 用户可以配置完整路径（如 https://api.example.com/v1/chat/completions）
+	// 或者只配置基础URL（如 https://api.deepseek.com），代码会自动补全
 	baseURL := strings.TrimSuffix(m.cfg.BaseURL, "/")
-	// 如果URL不以/v1结尾，自动添加
-	if !strings.HasSuffix(baseURL, "/v1") {
-		baseURL = baseURL + "/v1"
+	var url string
+	if strings.HasSuffix(baseURL, "/chat/completions") {
+		// 用户已配置完整路径
+		url = baseURL
+	} else if strings.Contains(baseURL, "/v1") || strings.Contains(baseURL, "/v1beta") {
+		// URL已包含版本路径，只需添加 /chat/completions
+		url = baseURL + "/chat/completions"
+	} else {
+		// 添加默认的 /v1/chat/completions
+		url = baseURL + "/v1/chat/completions"
 	}
-	url := baseURL + "/chat/completions"
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
