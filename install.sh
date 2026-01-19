@@ -50,7 +50,7 @@ echo "正在获取最新版本..."
 LATEST_VERSION=$(curl -sI "https://github.com/$REPO/releases/latest" | grep -i "location:" | sed 's/.*tag\///' | tr -d '\r\n')
 
 if [ -z "$LATEST_VERSION" ]; then
-    echo "警告: 无法获取版本号，使用 main 分支"
+    echo "警告: 无法获取版本号，使用最新发布版本"
     DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/mosoteach_${OS}_${ARCH}"
 else
     echo "最新版本: $LATEST_VERSION"
