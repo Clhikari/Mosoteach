@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -65,6 +66,8 @@ func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
 
 	// API路由
+	mux.HandleFunc("/api/auth/check", s.handleAuthCheck)
+	mux.HandleFunc("/api/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/config/save", s.handleSaveConfig)
 	mux.HandleFunc("/api/models", s.handleModels)
@@ -77,6 +80,8 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/events", s.handleSSE)
+	mux.HandleFunc("/api/settings/submit-delay", s.handleSubmitDelay)
+	mux.HandleFunc("/api/settings/web-password", s.handleWebPassword)
 
 	// 静态文件服务
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -87,7 +92,116 @@ func (s *Server) Start(port int) error {
 
 	addr := fmt.Sprintf(":%d", port)
 	fmt.Printf("🚀 服务器已启动: http://localhost%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+
+	// 使用 Basic Auth 中间件包装
+	return http.ListenAndServe(addr, s.authMiddleware(mux))
+}
+
+// authMiddleware Cookie 认证中间件
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		password := s.cfg.GetWebPassword()
+
+		// 如果没设置密码，直接放行
+		if password == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 放行认证相关的 API 和静态资源
+		if r.URL.Path == "/api/auth/check" || r.URL.Path == "/api/auth/login" ||
+			r.URL.Path == "/" || r.URL.Path == "/css/style.css" ||
+			r.URL.Path == "/favicon.ico" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 检查 Cookie
+		cookie, err := r.Cookie("mosoteach_auth")
+		if err != nil || cookie.Value != generateAuthToken(password) {
+			// API 请求返回 401
+			if len(r.URL.Path) > 4 && r.URL.Path[:5] == "/api/" {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// 页面请求重定向到首页（前端会显示登录界面）
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// generateAuthToken 生成认证 token
+func generateAuthToken(password string) string {
+	// 简单的 hash，实际生产环境应使用更安全的方式
+	h := sha256.Sum256([]byte("mosoteach_salt_" + password))
+	return fmt.Sprintf("%x", h[:16])
+}
+
+// handleAuthCheck 检查认证状态
+func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
+	password := s.cfg.GetWebPassword()
+
+	// 没设置密码，不需要认证
+	if password == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"required": false,
+			"authenticated": true,
+		})
+		return
+	}
+
+	// 检查 Cookie
+	cookie, err := r.Cookie("mosoteach_auth")
+	authenticated := err == nil && cookie.Value == generateAuthToken(password)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"required": true,
+		"authenticated": authenticated,
+	})
+}
+
+// handleAuthLogin 处理登录
+func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if s.cfg.VerifyWebPassword(req.Password) {
+		// 设置认证 Cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "mosoteach_auth",
+			Value:    generateAuthToken(s.cfg.GetWebPassword()),
+			Path:     "/",
+			MaxAge:   86400 * 7, // 7 天
+			HttpOnly: true,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"message": "密码错误",
+	})
 }
 
 // handleConfig 获取配置
@@ -711,4 +825,75 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "正在登录...",
 	})
+}
+
+// handleSubmitDelay 处理提交延迟配置
+func (s *Server) handleSubmitDelay(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		delay := s.cfg.GetSubmitDelay()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"submit_delay": delay})
+
+	case http.MethodPost:
+		var req struct {
+			SubmitDelay int `json:"submit_delay"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		if req.SubmitDelay < 0 {
+			req.SubmitDelay = 0
+		}
+		if err := s.cfg.SetSubmitDelay(req.SubmitDelay); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"submit_delay": req.SubmitDelay,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleWebPassword 处理 Web 访问密码配置
+func (s *Server) handleWebPassword(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		password := s.cfg.GetWebPassword()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"has_password": password != "",
+		})
+
+	case http.MethodPost:
+		var req struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := s.cfg.SetWebPassword(req.Password); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		msg := "密码已设置"
+		if req.Password == "" {
+			msg = "密码已清除"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": msg,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
