@@ -487,6 +487,10 @@
                             apiCall("/api/quizzes/cache").then((d) => {
                                 if (d) quizzes.value = d;
                             });
+                            // 启动状态轮询定时器
+                            if (!statusInterval) {
+                                statusInterval = setInterval(loadStatus, 2000);
+                            }
                         } else {
                             authError.value = data.message || "密码错误";
                         }
