@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -550,6 +552,16 @@ func (c *Config) VerifyWebPassword(password string) bool {
 	if c.WebPassword == "" {
 		return true
 	}
-	err := bcrypt.CompareHashAndPassword([]byte(c.WebPassword), []byte(password))
-	return err == nil
+	// 检查是否是 bcrypt 格式（以 $2 开头）
+	if len(c.WebPassword) > 3 && c.WebPassword[:2] == "$2" {
+		err := bcrypt.CompareHashAndPassword([]byte(c.WebPassword), []byte(password))
+		return err == nil
+	}
+	// 兼容旧的 SHA256 格式（64位十六进制）
+	// 验证通过后会在下次设置时自动迁移到 bcrypt
+	if len(c.WebPassword) == 64 {
+		h := sha256.Sum256([]byte("mosoteach_pwd_" + password))
+		return c.WebPassword == hex.EncodeToString(h[:])
+	}
+	return false
 }
