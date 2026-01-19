@@ -243,13 +243,14 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// 设置认证 Cookie
+		secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 		http.SetCookie(w, &http.Cookie{
 			Name:     "mosoteach_auth",
 			Value:    token,
 			Path:     "/",
 			MaxAge:   86400 * 7, // 7 天
 			HttpOnly: true,
-			Secure:   true, // 仅在 HTTPS 下发送
+			Secure:   secure, // 仅在 HTTPS 下启用
 			SameSite: http.SameSiteLaxMode,
 		})
 		w.Header().Set("Content-Type", "application/json")
