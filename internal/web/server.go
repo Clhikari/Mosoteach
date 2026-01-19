@@ -127,9 +127,14 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// 检查 Cookie
 		cookie, err := r.Cookie("mosoteach_auth")
 		if err != nil || !s.validateSession(cookie.Value) {
-			// API 请求返回 401
+			// API 请求返回 401 JSON
 			if strings.HasPrefix(r.URL.Path, "/api/") {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": "Unauthorized",
+					"code":  401,
+				})
 				return
 			}
 			// 页面请求重定向到首页（前端会显示登录界面）
