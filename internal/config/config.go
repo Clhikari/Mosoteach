@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -10,6 +8,8 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ModelConfig 模型配置
@@ -530,13 +530,17 @@ func (c *Config) GetWebPassword() string {
 // SetWebPassword 设置 Web 访问密码（存储哈希值）
 func (c *Config) SetWebPassword(password string) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if password == "" {
 		c.WebPassword = ""
 	} else {
-		c.WebPassword = hashPassword(password)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		c.WebPassword = string(hashedPassword)
 	}
-	c.mu.Unlock()
-	return c.Save()
+	return c.saveInternal()
 }
 
 // VerifyWebPassword 验证 Web 访问密码
@@ -546,11 +550,6 @@ func (c *Config) VerifyWebPassword(password string) bool {
 	if c.WebPassword == "" {
 		return true
 	}
-	return c.WebPassword == hashPassword(password)
-}
-
-// hashPassword 对密码进行哈希
-func hashPassword(password string) string {
-	h := sha256.Sum256([]byte("mosoteach_pwd_" + password))
-	return hex.EncodeToString(h[:])
+	err := bcrypt.CompareHashAndPassword([]byte(c.WebPassword), []byte(password))
+	return err == nil
 }
