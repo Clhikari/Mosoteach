@@ -1258,12 +1258,21 @@ func (b *BrowserExecutor) submitQuiz(quiz processor.QuizInfo) error {
 	delay := b.cfg.GetSubmitDelay()
 	if delay > 0 {
 		b.logf("等待 %d 秒后提交...", delay)
-		for elapsed := 1; elapsed <= delay; elapsed++ {
-			time.Sleep(1 * time.Second)
-			b.sendProgress("submit_countdown", quiz.URL, elapsed, delay)
-			remaining := delay - elapsed
-			if remaining > 0 {
-				b.logf("距离提交还有 %d 秒", remaining)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		elapsed := 0
+		for elapsed < delay {
+			select {
+			case <-b.ctx.Done():
+				b.logf("延迟等待被取消")
+				return b.ctx.Err()
+			case <-ticker.C:
+				elapsed++
+				b.sendProgress("submit_countdown", quiz.URL, elapsed, delay)
+				remaining := delay - elapsed
+				if remaining > 0 {
+					b.logf("距离提交还有 %d 秒", remaining)
+				}
 			}
 		}
 		b.logf("延迟等待结束，开始提交")
