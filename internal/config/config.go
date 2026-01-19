@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -58,6 +60,8 @@ type ConfigFile struct {
 	CachedQuizzes []CachedQuiz  `json:"cached_quizzes,omitempty"`
 	CompletedURLs []string      `json:"completed_urls,omitempty"`
 	Debug         bool          `json:"debug,omitempty"`
+	SubmitDelay   int           `json:"submit_delay,omitempty"` // 提交延迟（秒）
+	WebPassword   string        `json:"web_password,omitempty"` // Web 访问密码
 }
 
 // Config 全局配置管理
@@ -71,6 +75,8 @@ type Config struct {
 	IsLinux          bool
 	CompletedURLs    map[string]bool
 	Debug            bool
+	SubmitDelay      int    // 提交延迟（秒）
+	WebPassword      string // Web 访问密码
 }
 
 var (
@@ -227,6 +233,12 @@ func (c *Config) Load() error {
 	c.Debug = configFile.Debug
 	setupLogger(c.Debug)
 
+	// 加载提交延迟配置
+	c.SubmitDelay = configFile.SubmitDelay
+
+	// 加载 Web 密码
+	c.WebPassword = configFile.WebPassword
+
 	return nil
 }
 
@@ -251,6 +263,8 @@ func (c *Config) saveInternal() error {
 		CachedQuizzes: c.CachedQuizzes,
 		CompletedURLs: completedURLs,
 		Debug:         c.Debug,
+		SubmitDelay:   c.SubmitDelay,
+		WebPassword:   c.WebPassword,
 	}
 
 	data, err := json.MarshalIndent(configFile, "", "    ")
@@ -489,4 +503,54 @@ func setupLogger(debug bool) {
 	}
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	slog.SetDefault(slog.New(handler))
+}
+
+// GetSubmitDelay 获取提交延迟（秒）
+func (c *Config) GetSubmitDelay() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SubmitDelay
+}
+
+// SetSubmitDelay 设置提交延迟（秒）
+func (c *Config) SetSubmitDelay(delay int) error {
+	c.mu.Lock()
+	c.SubmitDelay = delay
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// GetWebPassword 获取 Web 访问密码哈希
+func (c *Config) GetWebPassword() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.WebPassword
+}
+
+// SetWebPassword 设置 Web 访问密码（存储哈希值）
+func (c *Config) SetWebPassword(password string) error {
+	c.mu.Lock()
+	if password == "" {
+		c.WebPassword = ""
+	} else {
+		c.WebPassword = hashPassword(password)
+	}
+	c.mu.Unlock()
+	return c.Save()
+}
+
+// VerifyWebPassword 验证 Web 访问密码
+func (c *Config) VerifyWebPassword(password string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.WebPassword == "" {
+		return true
+	}
+	return c.WebPassword == hashPassword(password)
+}
+
+// hashPassword 对密码进行哈希
+func hashPassword(password string) string {
+	h := sha256.Sum256([]byte("mosoteach_pwd_" + password))
+	return hex.EncodeToString(h[:])
 }
