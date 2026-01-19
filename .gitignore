@@ -5,6 +5,7 @@ CLAUDE.md
 # Build output
 *.exe
 *.exe~
+build.bat
 
 # Config with sensitive data
 user_data.json
