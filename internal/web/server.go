@@ -2,8 +2,9 @@ package web
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"mosoteach/internal/config"
 	"mosoteach/internal/models"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -38,6 +40,8 @@ type Server struct {
 	sseClients map[chan ProgressEvent]bool
 	sseMu      sync.RWMutex
 	cancelFunc context.CancelFunc
+	sessions   map[string]time.Time // 会话令牌 -> 过期时间
+	sessionMu  sync.RWMutex
 }
 
 // Status 当前状态
@@ -58,6 +62,7 @@ func NewServer() *Server {
 			Message: "就绪",
 		},
 		sseClients: make(map[chan ProgressEvent]bool),
+		sessions:   make(map[string]time.Time),
 	}
 }
 
@@ -109,18 +114,21 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// 放行认证相关的 API 和静态资源
-		if r.URL.Path == "/api/auth/check" || r.URL.Path == "/api/auth/login" ||
-			r.URL.Path == "/" || r.URL.Path == "/css/style.css" ||
-			r.URL.Path == "/favicon.ico" {
+		if strings.HasPrefix(r.URL.Path, "/api/auth/") || r.URL.Path == "/" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// 静态资源放行
+		if strings.HasPrefix(r.URL.Path, "/css/") || strings.HasSuffix(r.URL.Path, ".ico") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// 检查 Cookie
 		cookie, err := r.Cookie("mosoteach_auth")
-		if err != nil || cookie.Value != generateAuthToken(password) {
+		if err != nil || !s.validateSession(cookie.Value) {
 			// API 请求返回 401
-			if len(r.URL.Path) > 4 && r.URL.Path[:5] == "/api/" {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -133,11 +141,53 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// generateAuthToken 生成认证 token
-func generateAuthToken(password string) string {
-	// 简单的 hash，实际生产环境应使用更安全的方式
-	h := sha256.Sum256([]byte("mosoteach_salt_" + password))
-	return fmt.Sprintf("%x", h[:16])
+// generateSessionToken 生成随机会话令牌
+func generateSessionToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// createSession 创建新会话
+func (s *Server) createSession() (string, error) {
+	token, err := generateSessionToken()
+	if err != nil {
+		return "", err
+	}
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	// 会话有效期 7 天
+	s.sessions[token] = time.Now().Add(7 * 24 * time.Hour)
+	return token, nil
+}
+
+// validateSession 验证会话
+func (s *Server) validateSession(token string) bool {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	expiry, exists := s.sessions[token]
+	if !exists {
+		return false
+	}
+	if time.Now().After(expiry) {
+		// 会话已过期，删除
+		go func() {
+			s.sessionMu.Lock()
+			delete(s.sessions, token)
+			s.sessionMu.Unlock()
+		}()
+		return false
+	}
+	return true
+}
+
+// clearSessions 清除所有会话（密码修改时调用）
+func (s *Server) clearSessions() {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.sessions = make(map[string]time.Time)
 }
 
 // handleAuthCheck 检查认证状态
@@ -156,7 +206,7 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	// 检查 Cookie
 	cookie, err := r.Cookie("mosoteach_auth")
-	authenticated := err == nil && cookie.Value == generateAuthToken(password)
+	authenticated := err == nil && s.validateSession(cookie.Value)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -181,13 +231,21 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfg.VerifyWebPassword(req.Password) {
+		// 创建新会话
+		token, err := s.createSession()
+		if err != nil {
+			http.Error(w, "Failed to create session", http.StatusInternalServerError)
+			return
+		}
 		// 设置认证 Cookie
 		http.SetCookie(w, &http.Cookie{
 			Name:     "mosoteach_auth",
-			Value:    generateAuthToken(s.cfg.GetWebPassword()),
+			Value:    token,
 			Path:     "/",
 			MaxAge:   86400 * 7, // 7 天
 			HttpOnly: true,
+			Secure:   true, // 仅在 HTTPS 下发送
+			SameSite: http.SameSiteLaxMode,
 		})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
