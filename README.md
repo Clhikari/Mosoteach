@@ -25,9 +25,14 @@
 
 **Linux / macOS 一键安装：**
 
-```bash
-curl -sSL https://raw.githubusercontent.com/Clhikari/Mosoteach/main/install.sh | bash
-```
+# 下载安装脚本
+curl -sSL https://raw.githubusercontent.com/Clhikari/Mosoteach/main/install.sh -o install.sh
+
+# (可选但推荐) 审查脚本内容以确保安全
+# cat install.sh
+
+# 执行脚本
+bash install.sh
 
 **手动下载：**
 
