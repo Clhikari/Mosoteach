@@ -22,8 +22,28 @@
 
 <body>
     <div id="app" class="app-layout">
+        <!-- 登录界面 -->
+        <div v-if="authRequired && !authenticated" class="login-overlay">
+            <div class="login-card">
+                <div class="login-header">
+                    <div class="login-logo">MosoHelper</div>
+                    <div class="login-subtitle">请输入访问密码</div>
+                </div>
+                <form @submit.prevent="doAuthLogin" class="login-form">
+                    <div class="form-item">
+                        <input type="password" v-model="authPassword" class="input-block"
+                            placeholder="访问密码" autofocus />
+                    </div>
+                    <div v-if="authError" class="login-error">{{ authError }}</div>
+                    <button type="submit" class="btn primary full" :disabled="authLoading">
+                        {{ authLoading ? '验证中...' : '登录' }}
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <!-- Toast 提示 -->
-        <div v-if="toast.show" :class="['toast', toast.type]">
+        <div v-if="toast.show" :class="['toast', toast.type, { exiting: toast.exiting }]">
             {{ toast.message }}
         </div>
 
@@ -227,6 +247,46 @@
                             </div>
                         </form>
                     </div>
+                    <div class="card config-card spaced">
+                        <h3>答题设置</h3>
+                        <form @submit.prevent="saveSubmitDelay">
+                            <div class="form-item">
+                                <label>提交延迟（秒）</label>
+                                <input type="number" v-model.number="submitDelay" class="input-block" min="0"
+                                    placeholder="答完后等待的秒数，0 表示立即提交" />
+                                <small style="color: var(--text-muted); margin-top: 4px; display: block;">
+                                    用于需要最低作答时长的考试，答完后会倒计时等待
+                                </small>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary" :disabled="savingDelay">
+                                    保存设置
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="card config-card spaced">
+                        <h3>访问控制</h3>
+                        <form @submit.prevent="saveWebPassword">
+                            <div class="form-item">
+                                <label>Web 访问密码</label>
+                                <input type="password" v-model="webPassword" class="input-block"
+                                    :placeholder="hasWebPassword ? '已设置，留空则不修改' : '设置后访问需要密码'" />
+                                <small style="color: var(--text-muted); margin-top: 4px; display: block;">
+                                    设置密码后，访问网页时需要输入密码认证（用户名任意）
+                                </small>
+                            </div>
+                            <div class="form-actions" style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn primary" :disabled="savingPassword">
+                                    保存密码
+                                </button>
+                                <button type="button" class="btn secondary" @click="clearWebPassword"
+                                    :disabled="savingPassword || !hasWebPassword">
+                                    清除密码
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
                 <!-- 5. 运行日志 (独立页面) -->
@@ -296,7 +356,19 @@
                 const selectedQuiz = ref([]); // 改为数组支持多选
                 const sseConnected = ref(false);
                 const logContainer = ref(null);
-                const toast = reactive({ show: false, message: "", type: "success" });
+                const toast = reactive({ show: false, message: "", type: "success", exiting: false });
+                const submitDelay = ref(0);
+                const savingDelay = ref(false);
+                const webPassword = ref("");
+                const hasWebPassword = ref(false);
+                const savingPassword = ref(false);
+
+                // 认证相关
+                const authRequired = ref(false);
+                const authenticated = ref(true);
+                const authPassword = ref("");
+                const authLoading = ref(false);
+                const authError = ref("");
 
                 let eventSource = null;
                 let statusInterval = null;
@@ -355,8 +427,13 @@
                     toast.message = message;
                     toast.type = type;
                     toast.show = true;
+                    toast.exiting = false;
                     toastTimer = setTimeout(() => {
-                        toast.show = false;
+                        toast.exiting = true;
+                        setTimeout(() => {
+                            toast.show = false;
+                            toast.exiting = false;
+                        }, 300); // Wait for animation
                     }, 3000);
                 };
 
@@ -377,6 +454,48 @@
                 };
 
                 // 业务逻辑
+                const checkAuth = async () => {
+                    try {
+                        const data = await apiCall("/api/auth/check");
+                        authRequired.value = data.required;
+                        authenticated.value = data.authenticated;
+                    } catch (e) {
+                        console.error("Auth check failed:", e);
+                    }
+                };
+
+                const doAuthLogin = async () => {
+                    authLoading.value = true;
+                    authError.value = "";
+                    try {
+                        const res = await fetch("/api/auth/login", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ password: authPassword.value })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            authenticated.value = true;
+                            authPassword.value = "";
+                            // 登录成功后加载数据
+                            loadConfig();
+                            loadModels();
+                            loadStatus();
+                            loadSubmitDelay();
+                            loadWebPassword();
+                            connectSSE();
+                            apiCall("/api/quizzes/cache").then((d) => {
+                                if (d) quizzes.value = d;
+                            });
+                        } else {
+                            authError.value = data.message || "密码错误";
+                        }
+                    } catch (e) {
+                        authError.value = "登录失败: " + e.message;
+                    }
+                    authLoading.value = false;
+                };
+
                 const loadConfig = async () => {
                     const data = await apiCall("/api/config");
                     config.maskedUser = data.masked_user || "Guest";
@@ -403,6 +522,83 @@
                     const data = await apiCall("/api/quizzes");
                     quizzes.value = data || [];
                     loadingQuizzes.value = false;
+                };
+
+                const loadSubmitDelay = async () => {
+                    try {
+                        const data = await apiCall("/api/settings/submit-delay");
+                        submitDelay.value = data.submit_delay || 0;
+                    } catch (e) {
+                        console.error("Failed to load submit delay:", e);
+                    }
+                };
+
+                const saveSubmitDelay = async () => {
+                    savingDelay.value = true;
+                    try {
+                        const data = await apiCall("/api/settings/submit-delay", "POST", {
+                            submit_delay: submitDelay.value
+                        });
+                        if (data.success) {
+                            showToast("延迟设置已保存");
+                            addLog(`提交延迟设置为 ${submitDelay.value} 秒`, "success");
+                        } else {
+                            showToast("保存失败", "error");
+                        }
+                    } catch (e) {
+                        showToast("保存失败: " + e.message, "error");
+                    }
+                    savingDelay.value = false;
+                };
+
+                const loadWebPassword = async () => {
+                    try {
+                        const data = await apiCall("/api/settings/web-password");
+                        hasWebPassword.value = data.has_password || false;
+                    } catch (e) {
+                        console.error("Failed to load web password status:", e);
+                    }
+                };
+
+                const saveWebPassword = async () => {
+                    if (!webPassword.value) {
+                        showToast("请输入密码", "error");
+                        return;
+                    }
+                    savingPassword.value = true;
+                    try {
+                        const data = await apiCall("/api/settings/web-password", "POST", {
+                            password: webPassword.value
+                        });
+                        if (data.success) {
+                            showToast(data.message);
+                            addLog("Web 访问密码已更新", "success");
+                            hasWebPassword.value = true;
+                            webPassword.value = "";
+                        } else {
+                            showToast("保存失败", "error");
+                        }
+                    } catch (e) {
+                        showToast("保存失败: " + e.message, "error");
+                    }
+                    savingPassword.value = false;
+                };
+
+                const clearWebPassword = async () => {
+                    savingPassword.value = true;
+                    try {
+                        const data = await apiCall("/api/settings/web-password", "POST", {
+                            password: ""
+                        });
+                        if (data.success) {
+                            showToast("密码已清除");
+                            addLog("Web 访问密码已清除", "success");
+                            hasWebPassword.value = false;
+                        }
+                    } catch (e) {
+                        showToast("操作失败: " + e.message, "error");
+                    }
+                    savingPassword.value = false;
                 };
 
                 const loadModels = async () => {
@@ -526,17 +722,25 @@
                 };
 
                 // 初始化
-                onMounted(() => {
-                    loadConfig();
-                    loadModels();
-                    loadStatus();
-                    connectSSE();
-                    // 自动加载一次题库缓存
-                    apiCall("/api/quizzes/cache").then((d) => {
-                        if (d) quizzes.value = d;
-                    });
+                onMounted(async () => {
+                    // 先检查认证状态
+                    await checkAuth();
 
-                    statusInterval = setInterval(loadStatus, 2000);
+                    // 如果不需要认证或已认证，加载数据
+                    if (!authRequired.value || authenticated.value) {
+                        loadConfig();
+                        loadModels();
+                        loadStatus();
+                        loadSubmitDelay();
+                        loadWebPassword();
+                        connectSSE();
+                        // 自动加载一次题库缓存
+                        apiCall("/api/quizzes/cache").then((d) => {
+                            if (d) quizzes.value = d;
+                        });
+
+                        statusInterval = setInterval(loadStatus, 2000);
+                    }
                 });
 
                 onUnmounted(() => {
@@ -580,6 +784,20 @@
                     doLogin,
                     selectQuiz,
                     loadStatus,
+                    submitDelay,
+                    savingDelay,
+                    saveSubmitDelay,
+                    webPassword,
+                    hasWebPassword,
+                    savingPassword,
+                    saveWebPassword,
+                    clearWebPassword,
+                    authRequired,
+                    authenticated,
+                    authPassword,
+                    authLoading,
+                    authError,
+                    doAuthLogin,
                 };
             },
         }).mount("#app");
