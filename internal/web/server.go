@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,6 +12,7 @@ import (
 	"mosoteach/internal/config"
 	"mosoteach/internal/models"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,6 +40,8 @@ type Server struct {
 	sseClients map[chan ProgressEvent]bool
 	sseMu      sync.RWMutex
 	cancelFunc context.CancelFunc
+	sessions   map[string]time.Time // 会话令牌 -> 过期时间
+	sessionMu  sync.RWMutex
 }
 
 // Status 当前状态
@@ -57,6 +62,7 @@ func NewServer() *Server {
 			Message: "就绪",
 		},
 		sseClients: make(map[chan ProgressEvent]bool),
+		sessions:   make(map[string]time.Time),
 	}
 }
 
@@ -65,6 +71,8 @@ func (s *Server) Start(port int) error {
 	mux := http.NewServeMux()
 
 	// API路由
+	mux.HandleFunc("/api/auth/check", s.handleAuthCheck)
+	mux.HandleFunc("/api/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/config/save", s.handleSaveConfig)
 	mux.HandleFunc("/api/models", s.handleModels)
@@ -77,6 +85,8 @@ func (s *Server) Start(port int) error {
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/events", s.handleSSE)
+	mux.HandleFunc("/api/settings/submit-delay", s.handleSubmitDelay)
+	mux.HandleFunc("/api/settings/web-password", s.handleWebPassword)
 
 	// 静态文件服务
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -87,7 +97,169 @@ func (s *Server) Start(port int) error {
 
 	addr := fmt.Sprintf(":%d", port)
 	fmt.Printf("🚀 服务器已启动: http://localhost%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+
+	// 使用 Basic Auth 中间件包装
+	return http.ListenAndServe(addr, s.authMiddleware(mux))
+}
+
+// authMiddleware Cookie 认证中间件
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		password := s.cfg.GetWebPassword()
+
+		// 如果没设置密码，直接放行
+		if password == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 放行认证相关的 API 和静态资源
+		if strings.HasPrefix(r.URL.Path, "/api/auth/") || r.URL.Path == "/" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// 静态资源放行
+		if strings.HasPrefix(r.URL.Path, "/css/") || strings.HasSuffix(r.URL.Path, ".ico") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 检查 Cookie
+		cookie, err := r.Cookie("mosoteach_auth")
+		if err != nil || !s.validateSession(cookie.Value) {
+			// API 请求返回 401
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// 页面请求重定向到首页（前端会显示登录界面）
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// generateSessionToken 生成随机会话令牌
+func generateSessionToken() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// createSession 创建新会话
+func (s *Server) createSession() (string, error) {
+	token, err := generateSessionToken()
+	if err != nil {
+		return "", err
+	}
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	// 会话有效期 7 天
+	s.sessions[token] = time.Now().Add(7 * 24 * time.Hour)
+	return token, nil
+}
+
+// validateSession 验证会话
+func (s *Server) validateSession(token string) bool {
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	expiry, exists := s.sessions[token]
+	if !exists {
+		return false
+	}
+	if time.Now().After(expiry) {
+		// 会话已过期，删除
+		go func() {
+			s.sessionMu.Lock()
+			delete(s.sessions, token)
+			s.sessionMu.Unlock()
+		}()
+		return false
+	}
+	return true
+}
+
+// clearSessions 清除所有会话（密码修改时调用）
+func (s *Server) clearSessions() {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.sessions = make(map[string]time.Time)
+}
+
+// handleAuthCheck 检查认证状态
+func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
+	password := s.cfg.GetWebPassword()
+
+	// 没设置密码，不需要认证
+	if password == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"required": false,
+			"authenticated": true,
+		})
+		return
+	}
+
+	// 检查 Cookie
+	cookie, err := r.Cookie("mosoteach_auth")
+	authenticated := err == nil && s.validateSession(cookie.Value)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"required": true,
+		"authenticated": authenticated,
+	})
+}
+
+// handleAuthLogin 处理登录
+func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if s.cfg.VerifyWebPassword(req.Password) {
+		// 创建新会话
+		token, err := s.createSession()
+		if err != nil {
+			http.Error(w, "Failed to create session", http.StatusInternalServerError)
+			return
+		}
+		// 设置认证 Cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "mosoteach_auth",
+			Value:    token,
+			Path:     "/",
+			MaxAge:   86400 * 7, // 7 天
+			HttpOnly: true,
+			Secure:   true, // 仅在 HTTPS 下发送
+			SameSite: http.SameSiteLaxMode,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"message": "密码错误",
+	})
 }
 
 // handleConfig 获取配置
@@ -711,4 +883,75 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": "正在登录...",
 	})
+}
+
+// handleSubmitDelay 处理提交延迟配置
+func (s *Server) handleSubmitDelay(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		delay := s.cfg.GetSubmitDelay()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"submit_delay": delay})
+
+	case http.MethodPost:
+		var req struct {
+			SubmitDelay int `json:"submit_delay"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		if req.SubmitDelay < 0 {
+			req.SubmitDelay = 0
+		}
+		if err := s.cfg.SetSubmitDelay(req.SubmitDelay); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"submit_delay": req.SubmitDelay,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleWebPassword 处理 Web 访问密码配置
+func (s *Server) handleWebPassword(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		password := s.cfg.GetWebPassword()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"has_password": password != "",
+		})
+
+	case http.MethodPost:
+		var req struct {
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := s.cfg.SetWebPassword(req.Password); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		msg := "密码已设置"
+		if req.Password == "" {
+			msg = "密码已清除"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": msg,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

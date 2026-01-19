@@ -1254,10 +1254,32 @@ func (b *BrowserExecutor) batchSubmitAnswers(questions []Question, answers []str
 
 // submitQuiz 提交测验
 func (b *BrowserExecutor) submitQuiz(quiz processor.QuizInfo) error {
+	// 检查是否需要延迟提交
+	delay := b.cfg.GetSubmitDelay()
+	if delay > 0 {
+		b.logf("等待 %d 秒后提交...", delay)
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		elapsed := 0
+		for elapsed < delay {
+			select {
+			case <-b.ctx.Done():
+				b.logf("延迟等待被取消")
+				return b.ctx.Err()
+			case <-ticker.C:
+				elapsed++
+				b.sendProgress("submit_countdown", quiz.URL, elapsed, delay)
+				remaining := delay - elapsed
+				if remaining > 0 {
+					b.logf("距离提交还有 %d 秒", remaining)
+				}
+			}
+		}
+		b.logf("延迟等待结束，开始提交")
+	}
+
 	b.logf("正在提交测验...")
 
-	// 步骤1: 点击"交卷"按钮
-	// 根据实际HTML: <div class="con-bottom my-sticky-bottom"> 里的 <button class="el-button bottom-btn el-button--primary">
 	var clicked bool
 	err := chromedp.Run(b.ctx,
 		chromedp.Sleep(1*time.Second),
@@ -1290,8 +1312,6 @@ func (b *BrowserExecutor) submitQuiz(quiz processor.QuizInfo) error {
 		b.logDebug("未找到交卷按钮，尝试备用方法")
 	}
 
-	// 步骤2: 等待确认对话框出现，点击确认按钮
-	// 根据实际HTML: <div class="el-message-box"> 里的确认按钮
 	err = chromedp.Run(b.ctx,
 		chromedp.Sleep(1500*time.Millisecond),
 	)

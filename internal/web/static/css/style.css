@@ -528,6 +528,8 @@ body {
     color: var(--text-main);
     text-align: center;
 }
+.config-card.spaced { margin-top: 16px; }
+
 .form-item { margin-bottom: 24px; }
 .form-item label { display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-muted); font-size: 13px; }
 
@@ -649,6 +651,10 @@ body {
     color: #fff;
 }
 
+.toast.exiting {
+    animation: toastOut 0.3s ease forwards;
+}
+
 @keyframes toastIn {
     from {
         opacity: 0;
@@ -659,3 +665,78 @@ body {
         transform: translateX(-50%) translateY(0);
     }
 }
+
+@keyframes toastOut {
+    from {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+}
+
+/* ===== Login Overlay ===== */
+.login-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-app);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.login-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: var(--shadow-md);
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.login-logo {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 8px;
+}
+
+.login-subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.login-form .form-item {
+    margin-bottom: 20px;
+}
+
+.login-form .form-item input {
+    padding: 14px 16px;
+    font-size: 15px;
+}
+
+.login-error {
+    color: var(--danger);
+    font-size: 13px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.login-form .btn.full {
+    width: 100%;
+    padding: 14px;
+    font-size: 15px;
+}
+
