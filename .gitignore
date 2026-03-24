@@ -9,3 +9,5 @@ build.bat
 
 # Config with sensitive data
 user_data.json
+
+test
